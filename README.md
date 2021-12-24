@@ -22,7 +22,6 @@ An interface for sending infrared signals with lirc. Control your vintage audio 
 This is intented as the software heart of real hardware. I have it working on an raspberry with infrared sensor, an 4 digit led display and 3 color led indicators sitting in the old shell of an sattelite receiver. included ledcontrol.py and leddisplay.py
 
 <b>dependencies</b><br>
-
 The script sound.sh will run on most debian based distros. You might want to look into the script before running it. specialkeys.sh is used by the scripts for recognizing keys like space, enter, end, arrows and function keys. 
 
 <i>- The code is not the documentation, but in this case... :-D </i>
