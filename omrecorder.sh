@@ -1,6 +1,6 @@
 #!/bin/bash
 ##
-PROGVERSION=2021121402
+PROGVERSION=2023100201
 ##
 PROGFILENAME=omrecorder.sh
 ##
@@ -15,7 +15,17 @@ PROGAUTHOR="dlkvk"
 ##
 ## 2021022801 start writing code on unixrecorder
 ## 2021092401 omrecorder is an extention to unixrecorder
-##
+## 2021121402 something important for github and gramofile
+## 2022052901 help text (rececpten :-)) and splittrack (D6) gramofile
+## 2022062701 helptext renamed helpOmrecorder.txt and splittrack tip
+## 2022070201 create pcm files added -r 44100 (frequency for cdda) to sox
+## 2022070401 Create pcm files - bug fix - did not count beyond 10 :-)
+## 2022071101 Menu B added menu and add prefix for multiple cds rip
+## 2022071201 Add new option L rename MD: view titles + more in mneu
+## 2022101301 Add new option H edit titlelist: create from CD (muzicBrains)
+## 2022112401 Create Jewelcase text without soundfiles causes no error
+## 2023090801 youtube-dl replaced with yt-dlp - notes in MENU ITEM K
+## 2023100201 changed projectdirectory
 ##
 ## C O P Y R I G H T
 ##
@@ -48,9 +58,11 @@ devtty=`tty | grep tty`
 if [ -z "$devtty" ] ; then  declare -ir DEVTTY=1
 else declare -ir DEVTTY=0 ; fi
 
-declare WORKDIR=/home/public/media/misc/omrecorder
+#declare WORKDIR=/home/public/media/misc/omrecorder
+declare WORKDIR=/home/public/media/omrecorder/projects
 declare MUSICDIR=/home/public/media/audio
-declare MP3DIR=/home/public/media/misc/audioMP3
+#declare MP3DIR=/home/public/media/misc/audioMP3
+declare MP3DIR=/home/public/media/omrecorder/audioMP3
 declare KEY=0
 declare MAINLOOP=1
 declare COMMAND="waiting your command"
@@ -212,11 +224,83 @@ ripmd(){
 }
 
 # MENU ITEM B - RIP CD
+menuripcd(){
+    local cdtrackintegrety=0
+
+    while true ; do
+        if [ $KEY -eq $ENTER ] ; then KEY="Enter" ; fi
+        setstatus
+        echo -e "\033[05;01H1. Rip CD"
+        echo "2. Prefix previous rip files"
+        echo "3. View prefixed rip files"
+	    echo "0. Return to menu"
+
+        cdtrackintegrety=`find . -type f -name "track*.cdda.wav" |wc -l`
+
+        if [ $cdtrackintegrety -gt 0 ] ; then         
+            echo
+            if [ $cdtrackintegrety -eq 1 ] ; then         
+                echo "WARNING: There is one previous rip file found, use option 2 for prefixing"
+            else        
+                echo "WARNING: There are $cdtrackintegrety previous rip files found, use option 2 for prefixing"
+            fi
+        fi
+
+        readKey
+        echo -e "\033[09;01H   "
+        case $KEY in
+            1) ripcd $cdtrackintegrety ;;
+            2) prefixcdrips $cdtrackintegrety;;
+            3) setstatus ; ls [1-9].track*.cdda.wav ; echo ; pak ;; #viewcdrips ;;
+            $F01) echo "Help                   " ; echo ; pak ;;
+            0|$END) break ;;
+            *) KEY="!" ; echo "Please choose from list" ;;
+        esac
+    done
+}
+
+prefixcdrips(){
+    local prefixedfiles ; nonprefixedfiles=$1
+    local nonprefixedcounter=1
+
+    setstatus
+
+    if [ $nonprefixedfiles -eq 0 ] ; then echo "No non prefixed files found, quit" ; echo ; pak ; return ; fi
+
+    echo "Working ..."
+    prefixedfiles=`find . -maxdepth 1 -type f -name "[1-9].track*.cdda.wav" | awk -F'.' '{print $2}' | sort | uniq |wc -l`
+    let prefixedfiles++
+
+    until [ $nonprefixedcounter -gt $nonprefixedfiles  ] ; do
+        if [ $nonprefixedcounter -lt 10 ] ; then
+            mv "track0${nonprefixedcounter}.cdda.wav" "${prefixedfiles}.track0${nonprefixedcounter}.cdda.wav"
+        else
+            mv "track${nonprefixedcounter}.cdda.wav" "${prefixedfiles}.track${nonprefixedcounter}.cdda.wav"
+        fi
+        let nonprefixedcounter++
+    done
+
+    echo ; ls ${prefixedfiles}.track*.cdda.wav ; echo ; pak
+}
+
 ripcd(){
-    local item ; local track
+    local item ; local track ; local cdtrackintegrety=$1
     local counter=1 ; local cddafile ; local cddacounter=0 ; local datetime
 
     setstatus
+
+    if [ $cdtrackintegrety -gt 0 ] ; then 
+        while true ; do
+            echo "Previous rip files found. Do you wih to overwrite these files? Y/n"
+            readKey
+            case $KEY in
+                [Yy]*|$ENTER ) break ;;
+                [Nn]* ) return ;;
+                * ) KEY="!" ; echo ; echo "Please answer yes or no." ; echo ;;
+            esac
+        done
+    fi
+
     if [ ! -e /dev/cdrom ]  ; then echo "No CD device.";echo;pak;return;fi
 
     rc=`udevadm info -q property /dev/cdrom|grep ID_CDROM_MEDIA > /dev/null;echo $?`
@@ -332,7 +416,7 @@ ripcd(){
 # called from MENU B - ripcd and others
 mkcdtoctxt(){
     local cdtracks=$1
-    local item ; local track=(`ls track*.cdda.wav 2>/dev/null`)
+    local item ; local track=(`ls *track*.cdda.wav 2>/dev/null`)
     local counter=1 ; local cnts=0  # ; local charcnt
     local message="omrecorder toc"
 
@@ -411,7 +495,7 @@ menupcmfiles(){
     fi
 
 if [ $hdtrackintegrety -ne 1 ] ; then
-    setstatus ; echo "Multiple file types found" ; echo ; pak ; return ; fi
+    setstatus ; echo "Multiple file types or no files at all found" ; echo ; pak ; return ; fi
 
     while true ; do
         setstatus
@@ -566,7 +650,11 @@ createpcmfiles(){
         duration=`mediainfo ${trackname[$trackcounter]} |grep Duration | awk -F":" '{print $2}' | uniq`
         echo "Processing: $tracknumber ${trackname[$trackcounter]} ${tracksize[$trackcounter]} $duration"
 
-        if [ $targettrackcounter -lt 10 ] ; then targettracknumber="0$targettrackcounter" ; fi
+        if [ $targettrackcounter -lt 10 ] ; then 
+            targettracknumber="0$targettrackcounter" 
+        else 
+            targettracknumber="$targettrackcounter"
+        fi
         
         #proces playlist
         artist=`mediainfo --Inform="General;%Performer%" ${trackname[$tracknumber]}`
@@ -579,7 +667,7 @@ createpcmfiles(){
 #        echo "TARGET=${targetpath}/md.track${targettracknumber}.wav"
 #pak
 
-        sox ${trackname[$tracknumber]} ${targetpath}/md.track${targettracknumber}.wav
+        sox -G ${trackname[$tracknumber]} -b 16 -e signed-integer -r 44100 ${targetpath}/md.track${targettracknumber}.wav
 
         let trackcounter++
         let tracknumber++
@@ -633,12 +721,19 @@ menuburncd(){
 
 createjewlcasetext(){
     local disc_title ; local disc_performer ; local disc_year
-    local track_title ; local track_duration ; local track_number=1 ;
-    local track=(`ls track*.cdda.wav 2>/dev/null`)
+    local track_title ; local track_duration ; local track_number=1 ; local zduration=1
+    local track=(`ls *track*.cdda.wav 2>/dev/null`)
     local track_counter=0 ; local plcnts=0  # ; local charcnt
     local datetime=`date +%g%m%d%H%M%S` ; local track_number_txt
 
+    #Try other soundfiles
     if [ ${#track[@]} -eq 0 ] ; then track=(`ls md.track*.wav 2>/dev/null`) ; fi
+    if [ ${#track[@]} -eq 0 ] ; then track=(`ls processed*.wav 2>/dev/null`) ; fi
+
+    #No soundfiles
+    if [ ${#track[@]} -eq 0 ] ; then 
+        echo "No sound files found, please create these. " ; echo ; zduration=0 #; pak ; return        
+    fi
 
     if [ ! -e $MDTITLELIST ] ; then
         echo "No titlelist found, please create one. " ; echo ; pak ; return
@@ -657,7 +752,13 @@ createjewlcasetext(){
         # Tracks
         until [ $track_counter -eq $plcnts ] ; do
             track_title=`cat $MDTITLELIST | grep "track_title$track_number="|awk -F'=' '{print $2}'`
-            track_duration=`mediainfo --Inform="General;%Duration/String3%" ${track[track_counter]} | awk -F':' '{print $2 ":" $3}'|awk -F'.' '{print $1}'`
+
+            if [ $zduration -eq 1 ] ; then
+                track_duration=`mediainfo --Inform="General;%Duration/String3%" ${track[track_counter]} | awk -F':' '{print $2 ":" $3}'|awk -F'.' '{print $1}'`
+            else
+                track_duration=0
+            fi
+
             if [ $track_number -lt 10 ] ; then track_number_txt=" $track_number"
             else track_number_txt="$track_number"; fi
             echo " $track_number_txt $track_title  $track_duration " >> $CDJC
@@ -758,12 +859,13 @@ renamemd(){
 
     while true ; do
         setstatus
-        echo -e "\033[05;01H1. Rename MD titles in batch"
+        echo -e "\033[06;01H1. Rename MD titles in batch"
         echo "2. Rename disc title"
         echo "3. Rename track title"
+        echo "4. View titles"
         echo "0. Return to menu"
         echo
-        netmdcli | head -n -4 | tail -n +3
+        netmdcli | head -n -4 | tail -n +3  | more  -10 
         echo
         echo "Please choose from menu: "
         readKey
@@ -772,6 +874,7 @@ renamemd(){
             1) renamemdbatch;;
             2) renamemddisc;;
             3) renamemdtrack;;
+            4) setstatus ; netmdcli | head -n -4 | tail -n +3 | more  -19 ; echo ; pak ;;
             $F01) echo "Help                   " ; echo ; pak ;;
             0|$END) break ;;
             *) KEY="!" ; echo "Please choose from list" ;;
@@ -869,7 +972,7 @@ renamemdtrack(){
 
 # MENU ITEM M - CREATE COMPRESSED FILES
 menucompressedfiles(){
-    local cdtracks=(`ls track*.cdda.wav 2>/dev/null`)
+    local cdtracks=(`ls *track*.cdda.wav 2>/dev/null`)
     local mdtracks=(`ls md.track*.wav 2>/dev/null`)
     local vdtracks=(`ls processed*.wav 2>/dev/null`)
     local tracks
@@ -1126,22 +1229,45 @@ menutitlelist(){
         echo "3. View titlelist"
         echo "4. Create titlelist / add tracks"
         echo "5. Create titlelist from MD"
-        echo "6. Create titlelist with MusicBrainz"
+        echo "6. Create titlelist from CD"
+        echo "7. Create titlelist with MusicBrainz"
         echo "0. Return to menu"
         readKey
-        echo -e "\033[12;01H   "
+        echo -e "\033[13;01H   "
         case $KEY in
             1) mktitlelistbatch;;
             2) nano $MDTITLELIST              ;mkgreen;;
             3) cat $MDTITLELIST | more -21 ; echo ; pak ;mkgreen;;
             4) mkmdtitlelist ;;
             5) mktitlelistfrommd ;;
-            6) mktitlelistwithmusicbrainz ;;
+            6) mktitlelistfromcd ;;
+            7) mktitlelistwithmusicbrainz ;;
             $F01) echo "Help                   " ; echo ; pak ;;
             0|$END) break ;;
             * ) KEY="!" ; echo "Please choose from list" ;;
         esac
     done
+}
+
+mktitlelistfromcd(){
+    if [ ! -e /dev/cdrom ]  ; then echo "No CD device.";echo;pak;return;fi
+    rc=`udevadm info -q property /dev/cdrom|grep ID_CDROM_MEDIA > /dev/null;echo $?`
+
+    # generate md playlist
+    if [ $OD_TYPE -eq 1 ] ; then
+        echo "downloading tracklisting from musicbrainz..." ; echo
+        rc=`getCdTracks.py  > /dev/null 2>&1 ; echo $?`
+
+        if [ $rc -ne 0 ] ; then
+            echo "CD not found, use option 4 from menu"
+        else
+            echo "Ready"
+        fi
+
+        echo ; pak
+    else
+        echo "No CD in tray, reload with menu option P" ; pak
+    fi
 }
 
 mktitlelistwithmusicbrainz(){
@@ -1381,7 +1507,7 @@ mkplaylistmusicfiles(){
 
 mkplaylistcddafiles(){
     local tracktitles
-    local cdtracks=(`ls track*.cdda.wav 2>/dev/null`)
+    local cdtracks=(`ls *track*.cdda.wav 2>/dev/null`)
 
     if [ ${#cdtracks[@]} -eq 0 ] ; then cdtracks=(`ls processed*.wav 2>/dev/null`) ; fi
 
@@ -1413,7 +1539,7 @@ mkplaylistbatch(){
     local unique ; local counter=0 ; local cnts=1 ; local trackcnt ; local cdda=$1
     local cdtracks
 
-    if [ $cdda -ne 0 ] ; then cdtracks=(`ls track*.cdda.wav 2>/dev/null`) ; fi
+    if [ $cdda -ne 0 ] ; then cdtracks=(`ls *track*.cdda.wav 2>/dev/null`) ; fi
 
     if [ ${#cdtracks[@]} -eq 0 ] ; then cdtracks=(`ls processed*.wav 2>/dev/null`) ; fi
 
@@ -1579,6 +1705,12 @@ recordmd(){
     else
         echo "No playlist, please create one." ; pak
     fi
+
+## I used youtube-dl. Due to continues errors replaced with yt-dlp https://github.com/yt-dlp/yt-dlp
+## yt--dlp does not like mpv and mpv does not know yt-dlp. The solution here:
+## https://www.funkyspacemonkey.com/replace-youtube-dl-with-yt-dlp-how-to-make-mpv-work-with-yt-dlp
+## does not work. So make a relative symlink with the name youtube-dl to yt-dlp. WORKS!!!
+
 }
 
 # MENU ITEM D - SPLIT TRACKS
@@ -1626,6 +1758,7 @@ viewlistentracks(){
 
     # test if sound files exist
     trackname=(`ls -l md.track*.wav | awk '{print $9}' 2>/dev/null`)
+    if [ ${#trackname[@]} -eq 0 ] ; then trackname=(`ls -l processed*.wav | awk '{print $9}' 2>/dev/null`); fi
 
     # print warning or take count
     if [ ${#trackname[@]} -eq 0 ] ; then 
@@ -1673,6 +1806,7 @@ listentracks(){
 
     # test if sound files exist
     trackname=(`ls -l md.track*.wav | awk '{print $9}' 2>/dev/null`)
+    if [ ${#trackname[@]} -eq 0 ] ; then trackname=(`ls -l processed*.wav | awk '{print $9}' 2>/dev/null`); fi
 
     # no soundfiles, quit
     if [ ${#trackname[@]} -eq 0 ] ; then 
@@ -1784,22 +1918,30 @@ splittracks(){
     local trackname ; local tracksize ; local tracksplit
     local minute ; local second ; local fragment ; local duration
     local newtrackone ; local newtracktwo ; local oldtrack
-    local tracknumber=1 ; local trackcnt ; local trackcounter=0
+    local tracknumber=1 ; local trackcnt=0 ; local trackcounter=0
     local datetime ; local newfile
     local yn
 
     # test if sound files exist
     trackname=(`ls -l md.track*.wav | awk '{print $9}' 2>/dev/null`)
+    tracksize=(`ls -lh md.track*.wav | awk '{print $5}' 2>/dev/null`)
 
-    # print warning or take count
+    # try another name, by failing again print warning
     if [ ${#trackname[@]} -eq 0 ] ; then 
-        echo ; echo "No soundfiles found. Please correct this. "
-        echo ; pak ; return
-    else
-        trackcnt=${#trackname[@]}
-        tracksize=(`ls -lh md.track*.wav | awk '{print $5'}`)
+
+        trackname=(`ls -l processed*.wav | awk '{print $9}' 2>/dev/null`)
+        tracksize=(`ls -lh processed*.wav | awk '{print $5}' 2>/dev/null`)
+
+        if [ ${#trackname[@]} -eq 0 ] ; then 
+            echo ; echo "No soundfiles found. Please correct this. "
+            echo ; pak ; return
+        fi
     fi
 
+    #or take count
+    trackcnt=${#trackname[@]}
+
+echo "Hoi Evelien Bckdoor. counter=$trackcounter cnt=$trackcnt arraycount=${#trackname[@]}"
     #print tracks
     until [ $trackcounter -eq $trackcnt ] ; do
         tracknumber=$trackcounter
@@ -1873,6 +2015,7 @@ jointracks(){
 
     # test if sound files exist
     trackname=(`ls -l md.track*.wav | awk '{print $9}' 2>/dev/null`)
+    if [ ${#trackname[@]} -eq 0 ] ; then trackname=(`ls -l processed*.wav | awk '{print $9}' 2>/dev/null`); fi
 
     # print warning or take count
     if [ ${#trackname[@]} -eq 0 ] ; then 
@@ -1993,15 +2136,17 @@ setstatus(){
 
 helpmainmenu(){
     setstatus
-    echo "PROBLEMS"
-    echo "--------"
-    echo "cd status = NO DISC after closing tray: wait a few and press P again"
-    echo
-    echo "HINTS"
-    echo "-----"
-    echo "Hits are coming up: working..."
-    echo
-    pak
+    cat /home/public/media/misc/omrecorder/__MISC/notes/helpOmrecorder.txt| more -21 ; echo; pak
+
+#    echo "PROBLEMS"
+#    echo "--------"
+#    echo "cd status = NO DISC after closing tray: wait a few and press P again"
+#    echo
+#    echo "HINTS"
+#    echo "-----"
+#    echo "Hits are coming up: working..."
+#    echo
+#    pak
 }
 
 
@@ -2072,14 +2217,7 @@ ls: cannot access '01.flac': No such file or directory
 Tagging 1 flags..."
 echo "Something with passing on array....? dlkvk"
 echo "FUNCTIONALITY:"
-echo "Copy CD A, mp3Cd musicDVD, Musicbrainz"
-echo "INTEGRETY:"
-echo "sanity check files playlist, titlelist... something is done"
-echo "sanity check cdtoc.txt... I think I'm ready enough"
-echo "TUNING"
-echo "Ffmpeg filters?"
-echo "MISC:"
-echo "dlkvkband for test :-)"
+echo "Copy CD A, mp3Cd musicDVD"
 echo "WORKING NOW: " 
 echo "0-0-0-0-0-0-0-0-0-0-0-0-"
 echo ":-) :-( :-| :-D ;-) :-?"
@@ -2110,7 +2248,8 @@ until [ $MAINLOOP -eq 0 ] ; do
         A|a)
             COMMAND="copy cd";;
         B|b)
-            COMMAND="rip cd";ripcd;;
+            ##COMMAND="rip cd";ripcd;;
+            COMMAND="rip cd";menuripcd;;
         C|c)
             COMMAND="rip md";ripmd;;
         D|d)
@@ -2143,7 +2282,8 @@ until [ $MAINLOOP -eq 0 ] ; do
             eject -t ; OD_INFO="NO DATA"; setstatus ; echo "Working..."; readodstatus  ;;
         Q|q)
             COMMAND="list"
-            setstatus ; pwd ; echo ; ls | more -21 ; echo; pak ;;
+            #setstatus ; pwd ; echo ; ls | more -21 ; echo; pak ;;
+            setstatus ; pwd ; echo ; ls ; echo; pak ;;
         R|r)
             COMMAND="mc"
             mc ;;
